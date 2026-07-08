@@ -1,0 +1,41 @@
+<!--
+Canvas iframe wrapper for a hosted interactive tool.
+
+How to use:
+1. Host grade_calculator_iframe_test.html somewhere, such as GitHub Pages.
+2. Replace BOTH instances of REPLACE_WITH_CALCULATOR_URL below with the public HTTPS URL.
+   Example: https://yourusername.github.io/grade-calculator-test/
+3. Paste the edited code into a Canvas Page using the HTML/source editor.
+4. Save, then test in Student View and on at least one phone/tablet.
+
+This file deliberately contains no JavaScript. The JavaScript lives in the embedded page.
+-->
+
+<div style="border: 1px solid #c7cdd1; border-radius: 8px; padding: 1rem; margin: 1rem 0; background: #f8f9fa;">
+  <h2 style="margin-top: 0;">Grade Calculator Embed Test</h2>
+
+  <p>
+    This page embeds a separate interactive grade calculator. If the embed is working,
+    you should see score entry boxes, a Calculate button, live results, and a small chart below.
+  </p>
+
+  <p>
+    The calculator runs in the embedded page. It does not submit or save student grades.
+  </p>
+
+  <iframe
+    src="REPLACE_WITH_CALCULATOR_URL"
+    width="100%"
+    height="950"
+    loading="lazy"
+    title="Grade Calculator Embed Test"
+    style="border: 1px solid #999; border-radius: 6px; background: white;">
+  </iframe>
+
+  <p style="margin-bottom: 0;">
+    If the embedded calculator does not load, open it in a new tab:
+    <a href="REPLACE_WITH_CALCULATOR_URL" target="_blank" rel="noopener">
+      Grade Calculator Embed Test
+    </a>
+  </p>
+</div>
