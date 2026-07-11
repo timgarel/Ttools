@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Absurd Pizza Clicker</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at center, #fff5d0 0%, #ffd47a 55%, #e59b3a 100%);
+      user-select: none;
+    }
+
+    canvas {
+      display: block;
+      cursor: pointer;
+    }
+
+    .hud {
+      position: fixed;
+      left: 14px;
+      top: 14px;
+      z-index: 10;
+      background: rgba(255,255,255,0.88);
+      border: 2px solid rgba(80,40,10,0.35);
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.16);
+      min-width: 250px;
+      backdrop-filter: blur(4px);
+    }
+
+    .title {
+      font-weight: 800;
+      font-size: 20px;
+      margin-bottom: 7px;
+    }
+
+    .stat {
+      font-size: 15px;
+      line-height: 1.35;
+      margin: 3px 0;
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 15px;
+      font-weight: 700;
+      background: #b32418;
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 3px 0 #6c120c;
+    }
+
+    button:hover {
+      filter: brightness(1.05);
+    }
+
+    button:active {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 #6c120c;
+    }
+
+    button:disabled {
+      background: #8f8f8f;
+      box-shadow: 0 3px 0 #5d5d5d;
+      cursor: not-allowed;
+    }
+
+    #buySlice {
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    #reset {
+      position: fixed;
+      right: 12px;
+      top: 12px;
+      z-index: 11;
+      background: #333;
+      box-shadow: 0 3px 0 #111;
+      font-size: 13px;
+      padding: 8px 10px;
+    }
+
+    .hint {
+      position: fixed;
+      left: 14px;
+      bottom: 14px;
+      z-index: 10;
+      background: rgba(255,255,255,0.78);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      max-width: 420px;
+      color: #3b2a12;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud">
+    <div class="title">Absurd Pizza Clicker</div>
+    <div class="stat">Toppings: <strong id="toppings">0</strong></div>
+    <div class="stat">Pepperoni: <strong id="pepperoni">0</strong></div>
+    <div class="stat">Slices: <strong id="slices">1</strong></div>
+    <div class="stat">Click power: <strong id="clickPower">1</strong></div>
+    <div class="stat">Frenzy: <strong id="frenzy">x1</strong></div>
+    <button id="buySlice">Buy slice</button>
+  </div>
+
+  <button id="reset">Reset</button>
+
+  <div class="hint">
+    Click the pizza slice. Faster clicking makes a short-lived frenzy multiplier.
+    More slices add passive topping production and make every click more ridiculous.
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  const el = {
+    toppings: document.getElementById("toppings"),
+    pepperoni: document.getElementById("pepperoni"),
+    slices: document.getElementById("slices"),
+    clickPower: document.getElementById("clickPower"),
+    frenzy: document.getElementById("frenzy"),
+    buySlice: document.getElementById("buySlice"),
+    reset: document.getElementById("reset")
+  };
+
+  let W = 0;
+  let H = 0;
+
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  const rand = (min, max) => Math.random() * (max - min) + min;
+  const choose = arr => arr[Math.floor(Math.random() * arr.length)];
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  let game;
+
+  function startingGame() {
+    return {
+      toppings: 0,
+      pepperoni: 0,
+      sliceCost: 25,
+      lastClickTimes: [],
+      floatingTexts: [],
+      explosions: [],
+      slices: [
+        makeSlice(W / 2, H / 2, -Math.PI / 2, 1.08)
+      ],
+      lastTime: performance.now()
+    };
+  }
+
+  function makeSlice(x, y, rotation, scale) {
+    return {
+      x,
+      y,
+      rotation,
+      scale,
+      wobble: rand(0, Math.PI * 2),
+      toppings: [],
+      crustBumps: Array.from({ length: 7 }, () => rand(-0.08, 0.08))
+    };
+  }
+
+  function resetGame() {
+    game = startingGame();
+    updateHUD();
+  }
+
+  resetGame();
+
+  function currentFrenzy() {
+    const now = performance.now();
+    game.lastClickTimes = game.lastClickTimes.filter(t => now - t < 1300);
+    const clicks = game.lastClickTimes.length;
+
+    if (clicks >= 26) return 8;
+    if (clicks >= 20) return 6;
+    if (clicks >= 14) return 4;
+    if (clicks >= 8) return 2;
+    return 1;
+  }
+
+  function clickPower() {
+    return Math.max(1, Math.floor(game.slices.length * currentFrenzy()));
+  }
+
+  function addFloatingText(x, y, text) {
+    game.floatingTexts.push({
+      x,
+      y,
+      text,
+      life: 1,
+      vx: rand(-25, 25),
+      vy: rand(-95, -50),
+      size: rand(17, 27)
+    });
+  }
+
+  function addTopping(slice, kind) {
+    const p = randomPointInSlice();
+    slice.toppings.push({
+      x: p.x,
+      y: p.y,
+      r: rand(3.5, 7.5),
+      rot: rand(0, Math.PI * 2),
+      kind
+    });
+
+    // Let it get absurd, but avoid freezing too quickly.
+    if (slice.toppings.length > 1600) {
+      slice.toppings.splice(0, 100);
+    }
+  }
+
+  function randomPointInSlice() {
+    // Local coordinates inside a triangular pizza slice.
+    // Tip is upward, crust is at bottom.
+    const y = rand(-92, 64);
+    const halfWidthAtY = ((y + 100) / 170) * 72;
+    const x = rand(-halfWidthAtY, halfWidthAtY);
+    return { x, y };
+  }
+
+  function addSlice() {
+    const base = choose(game.slices);
+    const angle = rand(0, Math.PI * 2);
+    const distance = rand(55, 105);
+    const x = clamp(base.x + Math.cos(angle) * distance, 70, W - 70);
+    const y = clamp(base.y + Math.sin(angle) * distance, 80, H - 55);
+    const rotation = rand(0, Math.PI * 2);
+    const scale = rand(0.86, 1.2);
+
+    const slice = makeSlice(x, y, rotation, scale);
+
+    // New slices inherit a bit of pizza nonsense.
+    const inherited = Math.min(18 + Math.floor(game.slices.length / 2), 90);
+    for (let i = 0; i < inherited; i++) {
+      addTopping(slice, choose(["pepperoni", "olive", "mushroom", "pepper"]));
+    }
+
+    game.slices.push(slice);
+  }
+
+  function clickPizza(mx, my) {
+    const frenzy = currentFrenzy();
+    const power = clickPower();
+    const gain = power;
+
+    game.toppings += gain;
+    game.pepperoni += Math.floor(gain / 3) + (Math.random() < 0.33 ? 1 : 0);
+    game.lastClickTimes.push(performance.now());
+
+    // Put several toppings on random slices per click.
+    const toppingBursts = Math.min(1 + frenzy + Math.floor(game.slices.length / 4), 45);
+    for (let i = 0; i < toppingBursts; i++) {
+      const slice = choose(game.slices);
+      const kind = Math.random() < 0.54 ? "pepperoni" : choose(["olive", "mushroom", "pepper", "onion"]);
+      addTopping(slice, kind);
+    }
+
+    game.explosions.push({
+      x: mx,
+      y: my,
+      life: 0.55,
+      particles: Array.from({ length: Math.min(12 + frenzy * 4, 44) }, () => ({
+        x: 0,
+        y: 0,
+        vx: rand(-160, 160),
+        vy: rand(-180, 90),
+        r: rand(2, 6),
+        kind: choose(["pepperoni", "olive", "cheese"])
+      }))
+    });
+
+    addFloatingText(mx, my, "+" + gain + " toppings");
+    updateHUD();
+  }
+
+  function pointHitsAnySlice(mx, my) {
+    // For playability, clicks near any slice count, including heavily overlapped ones.
+    for (let i = game.slices.length - 1; i >= 0; i--) {
+      const s = game.slices[i];
+      const dx = mx - s.x;
+      const dy = my - s.y;
+      const radius = 105 * s.scale;
+      if (dx * dx + dy * dy < radius * radius) return true;
+    }
+    return false;
+  }
+
+  canvas.addEventListener("pointerdown", e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (pointHitsAnySlice(mx, my)) {
+      clickPizza(mx, my);
+    }
+  });
+
+  el.buySlice.addEventListener("click", () => {
+    if (game.toppings >= game.sliceCost) {
+      game.toppings -= game.sliceCost;
+      addSlice();
+
+      // Costs climb, but not so fast that the absurd part takes forever.
+      game.sliceCost = Math.ceil(game.sliceCost * 1.34 + 8);
+
+      // Buying a slice showers it with toppings.
+      for (let i = 0; i < 16 + game.slices.length; i++) {
+        addTopping(choose(game.slices), choose(["pepperoni", "olive", "mushroom", "pepper", "onion"]));
+      }
+
+      updateHUD();
+    }
+  });
+
+  el.reset.addEventListener("click", resetGame);
+
+  function updateHUD() {
+    el.toppings.textContent = Math.floor(game.toppings).toLocaleString();
+    el.pepperoni.textContent = Math.floor(game.pepperoni).toLocaleString();
+    el.slices.textContent = game.slices.length.toLocaleString();
+    el.clickPower.textContent = clickPower().toLocaleString();
+    el.frenzy.textContent = "x" + currentFrenzy();
+    el.buySlice.textContent = "Buy slice (" + game.sliceCost.toLocaleString() + " toppings)";
+    el.buySlice.disabled = game.toppings < game.sliceCost;
+  }
+
+  function drawSlice(ctx, slice, t) {
+    ctx.save();
+    ctx.translate(slice.x, slice.y);
+    ctx.rotate(slice.rotation + Math.sin(t * 2.2 + slice.wobble) * 0.015);
+    ctx.scale(slice.scale, slice.scale);
+
+    // Very simple triangular pizza slice.
+    const tip = { x: 0, y: -105 };
+    const left = { x: -78, y: 78 };
+    const right = { x: 78, y: 78 };
+
+    // Shadow
+    ctx.save();
+    ctx.translate(7, 9);
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.quadraticCurveTo(0, 98, right.x, right.y);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(0,0,0,0.20)";
+    ctx.fill();
+    ctx.restore();
+
+    // Cheese
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.quadraticCurveTo(0, 91, right.x, right.y);
+    ctx.closePath();
+    ctx.fillStyle = "#ffd64d";
+    ctx.fill();
+
+    // Sauce border under cheese
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#c53320";
+    ctx.stroke();
+
+    // Cheese highlights
+    ctx.beginPath();
+    ctx.moveTo(-10, -70);
+    ctx.quadraticCurveTo(-15, -25, -38, 43);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(255,245,151,0.85)";
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(15, -48);
+    ctx.quadraticCurveTo(18, -5, 42, 55);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(255,245,151,0.55)";
+    ctx.stroke();
+
+    // Crust
+    ctx.beginPath();
+    ctx.moveTo(left.x, left.y);
+    ctx.quadraticCurveTo(-45, 103 + slice.crustBumps[0] * 90, -12, 98 + slice.crustBumps[1] * 90);
+    ctx.quadraticCurveTo(28, 105 + slice.crustBumps[2] * 90, right.x, right.y);
+    ctx.lineWidth = 23;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#b97325";
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(left.x, left.y);
+    ctx.quadraticCurveTo(-45, 88, -12, 86);
+    ctx.quadraticCurveTo(28, 91, right.x, right.y);
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(255,204,101,0.55)";
+    ctx.stroke();
+
+    // Toppings. Yes, this intentionally becomes too much.
+    for (const top of slice.toppings) {
+      drawTopping(ctx, top);
+    }
+
+    ctx.restore();
+  }
+
+  function drawTopping(ctx, top) {
+    ctx.save();
+    ctx.translate(top.x, top.y);
+    ctx.rotate(top.rot);
+
+    if (top.kind === "pepperoni") {
+      ctx.beginPath();
+      ctx.arc(0, 0, top.r * 1.25, 0, Math.PI * 2);
+      ctx.fillStyle = "#b82124";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(top.r * 0.25, -top.r * 0.2, top.r * 0.22, 0, Math.PI * 2);
+      ctx.arc(-top.r * 0.35, top.r * 0.15, top.r * 0.18, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,225,150,0.38)";
+      ctx.fill();
+    } else if (top.kind === "olive") {
+      ctx.beginPath();
+      ctx.arc(0, 0, top.r, 0, Math.PI * 2);
+      ctx.fillStyle = "#242417";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, 0, top.r * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd64d";
+      ctx.fill();
+    } else if (top.kind === "mushroom") {
+      ctx.beginPath();
+      ctx.arc(0, -top.r * 0.2, top.r, Math.PI, 0);
+      ctx.lineTo(top.r * 0.5, top.r * 0.7);
+      ctx.lineTo(-top.r * 0.5, top.r * 0.7);
+      ctx.closePath();
+      ctx.fillStyle = "#efe0c0";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(90,50,20,0.35)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else if (top.kind === "pepper") {
+      ctx.beginPath();
+      ctx.moveTo(-top.r, 0);
+      ctx.quadraticCurveTo(0, -top.r * 1.6, top.r, 0);
+      ctx.quadraticCurveTo(0, top.r * 0.65, -top.r, 0);
+      ctx.fillStyle = "#238d34";
+      ctx.fill();
+    } else if (top.kind === "onion") {
+      ctx.beginPath();
+      ctx.arc(0, 0, top.r, 0, Math.PI * 1.5);
+      ctx.strokeStyle = "#f2f0ff";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, top.r, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffe76a";
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawExplosion(ex, dt) {
+    ex.life -= dt;
+    ctx.save();
+    ctx.translate(ex.x, ex.y);
+
+    for (const p of ex.particles) {
+      p.vy += 260 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.globalAlpha = Math.max(0, ex.life / 0.55);
+
+      if (p.kind === "pepperoni") {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.r * 1.4, 0, Math.PI * 2);
+        ctx.fillStyle = "#b82124";
+        ctx.fill();
+      } else if (p.kind === "olive") {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = "#222";
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#ffe76a";
+        ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+      }
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  function drawFloatingText(ft, dt) {
+    ft.life -= dt;
+    ft.x += ft.vx * dt;
+    ft.y += ft.vy * dt;
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, ft.life);
+    ctx.font = "800 " + ft.size + "px system-ui, sans-serif";
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "rgba(80,35,10,0.75)";
+    ctx.strokeText(ft.text, ft.x, ft.y);
+    ctx.fillStyle = "#fff6bf";
+    ctx.fillText(ft.text, ft.x, ft.y);
+    ctx.restore();
+  }
+
+  function passiveGain(dt) {
+    const sliceCount = game.slices.length;
+    if (sliceCount <= 1) return;
+
+    // Passive gain accelerates as slices multiply.
+    const gain = dt * sliceCount * Math.sqrt(sliceCount) * 0.8;
+    game.toppings += gain;
+    game.pepperoni += gain * 0.18;
+
+    // Passive toppings slowly pile onto the visible slices.
+    const chance = Math.min(0.02 * sliceCount * dt * 60, 0.9);
+    if (Math.random() < chance) {
+      const count = Math.min(1 + Math.floor(sliceCount / 6), 20);
+      for (let i = 0; i < count; i++) {
+        addTopping(choose(game.slices), choose(["pepperoni", "olive", "mushroom", "pepper", "onion"]));
+      }
+    }
+  }
+
+  function maybeAutoPizzaChaos() {
+    // When the player has a lot of toppings sitting around, the pizza gets messier.
+    // This does not buy slices; it just makes the visuals escalate.
+    if (game.toppings > 500 && Math.random() < 0.03) {
+      for (let i = 0; i < Math.min(game.slices.length, 30); i++) {
+        addTopping(choose(game.slices), choose(["pepperoni", "olive", "mushroom", "pepper", "onion"]));
+      }
+    }
+  }
+
+  function loop(now) {
+    const dt = Math.min((now - game.lastTime) / 1000, 0.05);
+    game.lastTime = now;
+
+    passiveGain(dt);
+    maybeAutoPizzaChaos();
+
+    ctx.clearRect(0, 0, W, H);
+
+    const t = now / 1000;
+
+    // Draw a faint plate target behind the original slice.
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.beginPath();
+    ctx.arc(W / 2, H / 2, 150, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.restore();
+
+    // Draw older slices first, newer slices on top.
+    for (const slice of game.slices) {
+      drawSlice(ctx, slice, t);
+    }
+
+    for (const ex of game.explosions) {
+      drawExplosion(ex, dt);
+    }
+    game.explosions = game.explosions.filter(ex => ex.life > 0);
+
+    for (const ft of game.floatingTexts) {
+      drawFloatingText(ft, dt);
+    }
+    game.floatingTexts = game.floatingTexts.filter(ft => ft.life > 0);
+
+    updateHUD();
+    requestAnimationFrame(loop);
+  }
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
